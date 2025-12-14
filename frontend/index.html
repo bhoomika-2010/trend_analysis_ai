@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trend Analyzer Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; color: #1c1e21; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        h1 { color: #333; }
+        .controls-container { display: flex; flex-direction: column; align-items: center; gap: 15px; margin: 20px 0; padding: 20px; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); width: 90%; max-width: 1400px; }
+        .search-row, .filter-row { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+        .search-row input { padding: 10px; border-radius: 6px; border: 1px solid #ddd; width: 300px; font-size: 16px; }
+        .search-row button { padding: 10px 20px; border: none; background-color: #007bff; color: white; border-radius: 6px; font-size: 16px; cursor: pointer; transition: background-color 0.2s; }
+        .search-row button:hover { background-color: #0056b3; }
+        .search-row button:disabled { background-color: #cccccc; cursor: not-allowed; }
+        .filter-row label { font-weight: bold; }
+        .filter-row input { padding: 8px; border-radius: 6px; border: 1px solid #ddd; }
+        .charts-container { display: flex; justify-content: center; gap: 40px; width: 90%; max-width: 1400px; margin-top: 20px; flex-wrap: wrap; }
+        
+       .chart-wrapper {
+    flex-basis: 600px;
+    flex-grow: 1;
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    position: relative;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    /* allow chart elements (legend, labels) to overflow outside inner area if needed */
+    overflow: visible;
+    /* card visual height - adjust if you want taller cards */
+    height: 480px;
+}
+
+/* Reserve header/legend area */
+.chart-wrapper h2 {
+    margin: 0 0 8px 0;
+    line-height: 1.2;
+    height: 48px;               /* give bigger reserved space for title/legend */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Canvas fills remaining space but can overflow vertically if needed */
+.chart-wrapper canvas {
+    width: 100% !important;
+    height: calc(100% - 56px) !important; /* leave room for header and a little gap */
+    display: block;
+    box-sizing: border-box;
+    max-height: none;
+}
+
+
+        .chart-wrapper.full-width { flex-basis: 100%; }
+        h2 { text-align: center; margin-top: 0; }
+        #statusMessage { margin-top: 20px; font-size: 18px; color: #555; text-align: center; min-height: 25px; }
+    </style>
+</head>
+<body>
+
+    <h1>Trend Analyzer Dashboard</h1>
+
+    <div class="controls-container">
+        <div class="search-row">
+            <input type="text" id="keywordInput" placeholder="Enter a keyword (e.g., iPhone)">
+            <button id="searchButton">Analyze Trend</button>
+        </div>
+        <div class="filter-row">
+            <label for="startDate">Filter Historical Data From:</label>
+            <input type="date" id="startDate">
+            <label for="endDate">To:</label>
+            <input type="date" id="endDate">
+        </div>
+    </div>
+
+    <div id="statusMessage">Enter a keyword to begin.</div>
+
+    <div class="charts-container">
+        <div class="chart-wrapper full-width" id="mainChartContainer" style="display: none;">
+            <h2>Trend Analysis</h2>
+            <canvas id="mainChart"></canvas>
+        </div>
+        
+        <div class="chart-wrapper" id="sentimentContainer" style="display: none;">
+            <h2>Public Sentiment Analysis</h2>
+            <canvas id="sentimentPieChart"></canvas>
+        </div>
+        
+        <div class="chart-wrapper" id="topicsContainer" style="display: none; height: 320px;">
+            <h2>Detected Topics</h2>
+            <div id="topicsList" style="padding: 10px; max-height: 220px; overflow: auto;"></div>
+        </div>
+
+        <div class="chart-wrapper" id="geoContainer" style="display: none; height: 420px;">
+    <h2>Geographic Metrics</h2>
+    <div style="display:flex; gap:12px; align-items:center; margin-bottom:8px;">
+        <label for="geoLevel">Level:</label>
+        <!-- <select id="geoLevel">
+            <option value="country">Country</option>
+            <option value="region">Region</option>
+            <option value="city">City</option>
+        </select> -->
+        <label for="geoLimit">Top:</label>
+        <input id="geoLimit" type="number" value="10" min="1" style="width:70px;" />
+    </div>
+
+    <!-- List of geo items (existing feature) -->
+    <div id="geoList" style="padding:10px; max-height:220px; overflow:auto;"></div>
+
+    <!-- ⭐ NEW Leaderboard below -->
+    <div id="geoTopCountriesWrapper" style="margin-top:14px; display:none;">
+        <h3 style="margin-bottom:6px;">Top Countries by Trend</h3>
+        <div id="geoTopCountriesList" style="padding: 10px; max-height: 180px; overflow:auto;"></div>
+    </div>
+
+    <!-- Forecast (existing feature) -->
+    <div style="margin-top:12px;">
+        <h4 id="geoForecastTitle" style="margin:6px 0 8px 0; display:none">Selected Country Forecast</h4>
+        <canvas id="geoForecastCanvas" style="display:none; height:160px; width:100%"></canvas>
+    </div>
+</div>
+
+
+        <!-- <div class="chart-wrapper" id="entitiesContainer" style="display: none; height: 320px;">
+            <h2>Top Entities</h2>
+            <div id="entitiesList" style="padding: 10px; max-height: 220px; overflow: auto;"></div>
+        </div> -->
+        
+        <div class="chart-wrapper" id="influencersContainer" style="display: none; height: 320px;">
+            <h2>Influencer Leaderboard</h2>
+            <div id="influencersList" style="padding: 10px; max-height: 220px; overflow: auto;"></div>
+        </div>
+        <!-- Platform Comparison Panel -->
+        <div class="chart-wrapper" id="platformComparisonContainer" style="display: none;">
+    <h2>Platform Comparison</h2>
+    <div style="display:flex; gap:12px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+        <label for="platformMetricSelect"><strong>View by:</strong></label>
+        <select id="platformMetricSelect">
+            <option value="mentions_share">Share of conversation (%)</option>
+            <option value="normalized_engagement">Engagement index (0–100)</option>
+            <option value="sentiment_mix">Sentiment index (0–100)</option>
+        </select>
+
+
+        <label for="platformSortSelect"><strong>Sort by:</strong></label>
+        <select id="platformSortSelect">
+            <option value="auto">Auto (best for metric)</option>
+            <option value="alphabetical">Platform name (A–Z)</option>
+        </select>
+    </div>
+    <p id="platformComparisonExplanation" style="font-size: 12px; color:#555; margin:4px 0 12px 0;"></p>
+    <canvas id="platformComparisonChart"></canvas>
+</div>
+
+    </div>
+
+    <script>
+        const keywordInput = document.getElementById('keywordInput');
+        const searchButton = document.getElementById('searchButton');
+        const startDateInput = document.getElementById('startDate');
+        const endDateInput = document.getElementById('endDate');
+        const statusMessage = document.getElementById('statusMessage');
+
+        const mainChartContainer = document.getElementById('mainChartContainer');
+        const sentimentContainer = document.getElementById('sentimentContainer');
+        const platformComparisonContainer = document.getElementById('platformComparisonContainer');
+        const platformMetricSelect = document.getElementById('platformMetricSelect');
+        const platformSortSelect = document.getElementById('platformSortSelect');
+        const platformComparisonExplanation = document.getElementById('platformComparisonExplanation');
+
+
+        // Chart Canvases
+        const mainCtx = document.getElementById('mainChart').getContext('2d');
+        const sentimentCtx = document.getElementById('sentimentPieChart').getContext('2d');
+        const platformComparisonCtx = document.getElementById('platformComparisonChart').getContext('2d');
+
+        // Global variables to hold our charts and data
+        let mainChart, sentimentChart;
+        let fullForecastData = [];
+        let platformComparisonChart=null;
+        let lastPlatformComparisonData = [];
+        let currentKeyword = '';
+
+            // Robustly destroy any Chart attached to a canvas element by its DOM id.
+    function destroyChartOnCanvasId(canvasId) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        // Chart.getChart() returns the chart instance attached to a canvas (Chart.js v3+)
+        const existing = Chart.getChart(canvas);
+        if (existing) {
+            try {
+                existing.destroy();
+            } catch (e) {
+                console.warn('Failed to destroy existing chart on', canvasId, e);
+            }
+        }
+    }
+
+
+        const renderSentimentPieChart = (trendsData) => {
+    // Ensure any existing chart on this canvas is destroyed first
+    destroyChartOnCanvasId('sentimentPieChart');
+
+    // Remove any previous "no data" message
+    const prevMsg = document.getElementById('sentimentNoData');
+    if (prevMsg) prevMsg.remove();
+
+    const s = trendsData && trendsData.social_sentiment;
+    if (!s) {
+        sentimentContainer.style.display = 'none';
+        return;
+    }
+
+    // coerce to numbers
+    const pos = Number(s.positive) || 0;
+    const neg = Number(s.negative) || 0;
+    const neu = Number(s.neutral)  || 0;
+
+    // If everything zero -> show message (don't draw empty pie)
+    if (pos + neg + neu === 0) {
+        sentimentContainer.style.display = 'block';
+        sentimentCtx.canvas.style.display = 'none';
+        const msg = document.createElement('div');
+        msg.id = 'sentimentNoData';
+        msg.style.padding = '14px';
+        msg.style.color = '#666';
+        msg.style.textAlign = 'center';
+        msg.innerText = 'No sentiment data available for this keyword/timeframe.';
+        sentimentContainer.appendChild(msg);
+        return;
+    }
+
+    // show container and canvas
+    sentimentContainer.style.display = 'block';
+    sentimentCtx.canvas.style.display = '';
+
+    // Create pie chart with safe options
+    sentimentChart = new Chart(sentimentCtx, {
+        type: 'pie',
+        data: {
+            labels: ['Positive', 'Negative', 'Neutral'],
+            datasets: [{
+                label: 'Sentiment',
+                data: [pos, neg, neu],
+                backgroundColor: ['rgb(75, 192, 192)', 'rgb(255, 99, 132)', 'rgb(201, 203, 207)'],
+                hoverOffset: 8
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: 8 },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: { boxWidth: 12, padding: 8 }
+                },
+                tooltip: { enabled: true }
+            },
+            elements: {
+                arc: { borderWidth: 1 }
+            }
+        }
+    });
+};
+
+
+
+        // --- UPDATED RENDER FUNCTION (joins forecast to last historical point) ---
+        const renderFilteredChart = () => {
+            const startDate = startDateInput.value ? new Date(startDateInput.value) : null;
+            const endDate = endDateInput.value ? new Date(endDateInput.value) : null;
+            
+            let filteredData = fullForecastData;
+            if (startDate) filteredData = filteredData.filter(d => new Date(d.ds) >= startDate);
+            if (endDate) filteredData = filteredData.filter(d => new Date(d.ds) <= endDate);
+
+            if (mainChart) mainChart.destroy();
+            
+            if (filteredData.length > 0) {
+                mainChartContainer.style.display = 'block';
+
+                // Historical (blue)
+                const historicalPoints = filteredData
+                    .filter(d => d.y !== null && d.y !== undefined)
+                    .map(d => ({ x: d.ds, y: d.y }));
+
+                // Future forecast only (where y is null but yhat exists)
+                const futureForecastRows = filteredData
+                    .filter(d => (d.y === null || d.y === undefined) && d.yhat !== null && d.yhat !== undefined);
+
+                let forecastPoints = futureForecastRows.map(d => ({ x: d.ds, y: d.yhat }));
+
+                // *** NEW: add a join point so dashed line starts from last historical value
+                const lastHistoricalRow = [...filteredData].reverse().find(d => d.y !== null && d.y !== undefined);
+                if (lastHistoricalRow && forecastPoints.length > 0) {
+                    forecastPoints.unshift({ x: lastHistoricalRow.ds, y: lastHistoricalRow.y });
+                }
+                destroyChartOnCanvasId('mainChart');
+                mainChart = new Chart(mainCtx, {
+                    type: 'line',
+                    data: {
+                        datasets: [
+                            { 
+                                label: 'Historical Interest', 
+                                data: historicalPoints, 
+                                borderColor: 'rgb(54, 162, 235)', 
+                                backgroundColor: 'rgba(54, 162, 235, 0.5)', 
+                                pointRadius: 2,
+                                tension: 0.2
+                            },
+                            { 
+                                label: 'Forecasted Trend', 
+                                data: forecastPoints, 
+                                borderColor: 'rgb(255, 99, 132)', 
+                                backgroundColor: 'rgba(255, 99, 132, 0.5)', 
+                                borderDash: [5, 5],
+                                pointRadius: 2,
+                                tension: 0.2,
+                                spanGaps: true   // *** helps avoid ugly breaks
+                            }
+                        ]
+                    },
+                    options: { 
+                        responsive: true, 
+                        maintainAspectRatio: false,
+                        scales: { 
+                            x: { 
+                                type: 'time', 
+                                time: { unit: 'month' } 
+                            } 
+                        } 
+                    }
+                });
+            } else {
+                mainChartContainer.style.display = 'none';
+            }
+        };
+
+        async function analyzeKeyword() {
+            const keyword = keywordInput.value.trim();
+            currentKeyword = keyword;
+            if (!keyword) {
+                alert('Please enter a keyword.');
+                return;
+            }
+
+            const startDate = startDateInput.value || null;
+            const endDate = endDateInput.value || null;
+            
+            searchButton.disabled = true;
+            searchButton.innerText = 'Analyzing...';
+            statusMessage.innerHTML = '<h3>Fetching live data... This may take a few minutes. Please wait.</h3>';
+            
+            mainChartContainer.style.display = 'none';
+            sentimentContainer.style.display = 'none';
+            platformComparisonContainer.style.display = 'none';
+            document.getElementById('geoTopCountriesWrapper').style.display = 'none';
+            const geoContainer = document.getElementById('geoContainer');
+        geoContainer.style.display = 'none';
+
+
+
+            if (mainChart) mainChart.destroy();
+            if (sentimentChart) sentimentChart.destroy();
+            if (platformComparisonChart) platformComparisonChart.destroy();
+            
+            fullForecastData = []; 
+
+            try {
+                const fetchResponse = await fetch('/api/fetch-and-analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keyword, startDate, endDate }),
+                });
+
+                if (!fetchResponse.ok) {
+                    const errorData = await fetchResponse.json();
+                    throw new Error(errorData.error || 'Failed to fetch data.');
+                }
+                statusMessage.innerText = 'Data fetched. Loading charts...';
+
+                const trendsResponse = await fetch(`/api/trends?keyword=${keyword}`);
+                if (trendsResponse.ok) {
+                    const trendsData = await trendsResponse.json();
+                    renderSentimentPieChart(trendsData);
+                    fetchAndRenderInfluencers(keyword);
+                    fetchAndRenderGeoMetrics(keyword);
+                    fetchAndRenderTopCountries(keyword);
+
+
+                }
+
+                const forecastResponse = await fetch(`/api/trends/forecast?keyword=${keyword}`);
+                if (forecastResponse.ok) {
+                    const forecastData = await forecastResponse.json();
+                    fullForecastData = forecastData || [];
+                    renderFilteredChart();
+                    statusMessage.innerText = 'Analysis complete.';
+                    fetchAndRenderTopics(keyword);
+                    fetchAndRenderPlatformComparison(keyword);
+                } else {
+                    console.warn('Forecast endpoint returned error.');
+                    statusMessage.innerText = 'Analysis complete (Forecast unavailable).';
+                }
+
+            } catch (error) {
+                console.error('Critical error:', error);
+                statusMessage.innerHTML = `<p style="color: red;"><b>Error:</b> ${error.message}</p>`;
+            } finally {
+                searchButton.disabled = false;
+                searchButton.innerText = 'Analyze Trend';
+            }
+        }
+
+        async function fetchAndRenderTopics(keyword) {
+            try {
+                const resp = await fetch(`/api/topics?keyword=${encodeURIComponent(keyword)}`);
+                if (!resp.ok) return;
+                const data = await resp.json();
+                const container = document.getElementById('topicsContainer');
+                const list = document.getElementById('topicsList');
+                list.innerHTML = '';
+                if (data.topics && data.topics.length > 0) {
+                    container.style.display = 'block';
+                    data.topics.forEach(t => {
+                        const div = document.createElement('div');
+                        div.style.padding = '8px';
+                        div.style.borderBottom = '1px solid #eee';
+                        div.innerHTML = `<strong>${t.topic_label}</strong> <small style='color:#666'>(score ${Number(t.score).toFixed(2)})</small><br/><span style='color:#333'>${t.topic_id}</span>`;
+                        list.appendChild(div);
+                    });
+                } else {
+                    container.style.display = 'none';
+                }
+            } catch (e) { console.warn('Topics fetch failed', e); }
+        }
+
+        // async function fetchAndRenderEntities(keyword) {
+        //     try {
+        //         const resp = await fetch(`/api/entities?keyword=${encodeURIComponent(keyword)}&limit=50`);
+        //         if (!resp.ok) return;
+        //         const data = await resp.json();
+        //         const container = document.getElementById('entitiesContainer');
+        //         const list = document.getElementById('entitiesList');
+        //         list.innerHTML = '';
+        //         if (data.entities && data.entities.length > 0) {
+        //             container.style.display = 'block';
+        //             data.entities.forEach(e => {
+        //                 const div = document.createElement('div');
+        //                 div.style.padding = '8px';
+        //                 div.style.borderBottom = '1px solid #eee';
+        //                 div.innerHTML = `<strong>${e.entity}</strong> <small style='color:#666'>${e.entity_type}</small><br/><span style='color:#333'>mentions: ${e.support}</span>`;
+        //                 list.appendChild(div);
+        //             });
+        //         } else {
+        //             container.style.display = 'none';
+        //         }
+        //     } catch (e) { console.warn('Entities fetch failed', e); }
+        //     fetchAndRenderInfluencers(keyword);
+        //     fetchAndRenderGeoMetrics(keyword);
+        // }
+
+        // --- Fetch & Render Influencers ---
+async function fetchAndRenderInfluencers(keyword) {
+    try {
+        const resp = await fetch(`/api/influencers?keyword=${encodeURIComponent(keyword)}&limit=25`);
+        if (!resp.ok) return;
+
+        const data = await resp.json();
+        const container = document.getElementById('influencersContainer');
+        const list = document.getElementById('influencersList');
+        list.innerHTML = '';
+
+        const influencers = data.influencers || [];
+
+        if (influencers.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'block';
+
+        influencers.forEach(u => {
+            const div = document.createElement('div');
+            div.style.padding = '8px';
+            div.style.borderBottom = "1px solid #eee";
+
+            const name = (u.username || u.user_id || 'Unknown').toString();
+            const platform = (u.platform || 'Unknown').toString();
+
+            const engagements = (u.engagements != null ? Number(u.engagements) : 0);
+            const score = (u.influence_score != null ? Number(u.influence_score) : 0);
+
+            // Build a profile URL guess based on platform + name
+            let profileUrl = null;
+            const cleanName = name.replace(/^@/, '');
+
+            if (platform === 'Instagram') {
+                profileUrl = `https://www.instagram.com/${encodeURIComponent(cleanName)}/`;
+            } else if (platform === 'YouTube') {
+                profileUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(name)}`;
+            }
+
+            let nameHtml;
+            if (profileUrl) {
+                nameHtml = `<a href="${profileUrl}" target="_blank" rel="noopener noreferrer">${name}</a>`;
+            } else {
+                nameHtml = name;
+            }
+
+            div.innerHTML = `
+                <strong>${nameHtml}</strong>
+                <small style="color:#666">
+                    &nbsp;(${platform})
+                </small><br/>
+                <span style="color:#333">
+                    engagements: ${engagements.toLocaleString()} • score: ${score.toFixed(1)}
+                </span>
+            `;
+
+            list.appendChild(div);
+        });
+
+    } catch (e) {
+        console.warn('Influencers fetch failed', e);
+        document.getElementById('influencersContainer').style.display = 'none';
+    }
+}
+
+
+        async function fetchAndRenderGeoMetrics(keyword) {
+            try {
+                const level = document.getElementById('geoLevel').value || 'country';
+                const limit = document.getElementById('geoLimit').value || 10;
+                const resp = await fetch(`/api/geo/metrics?keyword=${encodeURIComponent(keyword)}&level=${level}&limit=${limit}`);
+                if (!resp.ok) return;
+                const data = await resp.json();
+                const container = document.getElementById('geoContainer');
+                const list = document.getElementById('geoList');
+                const forecastTitle = document.getElementById('geoForecastTitle');
+                const forecastCanvas = document.getElementById('geoForecastCanvas');
+                list.innerHTML = '';
+                forecastTitle.style.display = 'none';
+                forecastCanvas.style.display = 'none';
+                if (data.metrics && data.metrics.length > 0) {
+                    container.style.display = 'block';
+                    data.metrics.forEach(m => {
+                        const div = document.createElement('div');
+                        div.style.padding = '8px';
+                        div.style.borderBottom = '1px solid #eee';
+                        div.style.cursor = 'pointer';
+                        div.innerHTML = `<strong>${m.location || 'Unknown'}</strong> <small style='color:#666'>avg: ${Number(m.metric_avg).toFixed(2)}</small> <span style='color:#333'>rows: ${m.row_count}</span>`;
+                        div.addEventListener('click', () => {
+                            fetchAndRenderGeoForecast(keyword, m.location);
+                        });
+                        list.appendChild(div);
+                    });
+                } else {
+                    container.style.display = 'none';
+                }
+            } catch (e) { console.warn('Geo metrics fetch failed', e); }
+        }
+
+        let geoForecastChart = null;
+        async function fetchAndRenderGeoForecast(keyword, location) {
+            try {
+                const canvas = document.getElementById('geoForecastCanvas');
+                const title = document.getElementById('geoForecastTitle');
+                title.style.display = 'block';
+                canvas.style.display = 'block';
+                const resp = await fetch(`/api/geo/forecast?keyword=${encodeURIComponent(keyword)}&country=${encodeURIComponent(location)}`);
+                if (!resp.ok) {
+                    title.innerText = `No regional forecast available for ${location}`;
+                    return;
+                }
+                const data = await resp.json();
+                const pointsHist = data.filter(d => d.y !== null).map(d => ({ x: d.ds, y: d.y }));
+                const pointsF = data.map(d => ({ x: d.ds, y: d.yhat }));
+                if (geoForecastChart) geoForecastChart.destroy();
+                destroyChartOnCanvasId('geoForecastCanvas');
+                geoForecastChart = new Chart(canvas.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        datasets: [
+                            { label: `${location} - Historical`, data: pointsHist, borderColor: 'rgb(54,162,235)', pointRadius: 2 },
+                            { label: `${location} - Forecast`, data: pointsF, borderColor: 'rgb(255,99,132)', borderDash: [4,4], pointRadius: 2 }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'time' } } }
+                });
+                title.innerText = `Regional Forecast — ${location}`;
+            } catch (e) { console.warn('Geo forecast failed', e); }
+        }
+        async function fetchAndRenderTopCountries(keyword) {
+    try {
+        const wrapper = document.getElementById('geoTopCountriesWrapper');
+        const list = document.getElementById('geoTopCountriesList');
+        const container = document.getElementById('geoContainer');
+
+        // reset view
+        wrapper.style.display = 'none';
+        list.innerHTML = '';
+
+        const resp = await fetch(`/api/geo/top_countries?keyword=${encodeURIComponent(keyword)}&top=10`);
+        if (!resp.ok) {
+            return;
+        }
+
+        const data = await resp.json();
+        const countries = data.top || [];
+
+        if (!countries.length) {
+            return;
+        }
+
+        // We have data → make sure the whole geo card is visible
+        container.style.display = 'block';
+        wrapper.style.display = 'block';
+
+        countries.forEach((c, idx) => {
+            const div = document.createElement('div');
+            div.style.padding = '8px';
+            div.style.borderBottom = '1px solid #eee';
+            div.innerHTML = `
+                <strong>${idx + 1}. ${c.country || 'Unknown'}</strong>
+                <span style="float:right; color:#333;">Score: ${Number(c.value || 0).toFixed(1)}</span>
+            `;
+            list.appendChild(div);
+        });
+
+    } catch (e) {
+        console.warn('Failed to fetch/render top countries', e);
+        const wrapper = document.getElementById('geoTopCountriesWrapper');
+        if (wrapper) wrapper.style.display = 'none';
+    }
+}
+
+        
+// --- Fetch & Render Platform Comparison ---
+// --- Render Platform Comparison (single metric at a time) ---
+function renderPlatformComparison() {
+    if (!lastPlatformComparisonData || lastPlatformComparisonData.length === 0) {
+        platformComparisonContainer.style.display = 'none';
+        platformComparisonExplanation.innerText = '';
+        return;
+    }
+
+    const metric = platformMetricSelect.value;   // 'mentions_share' | 'normalized_engagement' | 'sentiment_mix'
+    const sortMode = platformSortSelect.value;  // 'auto' | 'alphabetical'
+
+    let rows = [...lastPlatformComparisonData];
+
+    // ----- Sorting -----
+    if (sortMode === 'alphabetical') {
+        rows.sort((a, b) => (a.platform || '').localeCompare(b.platform || ''));
+    } else {
+        if (metric === 'mentions_share') {
+            rows.sort((a, b) => (b.mentions_share || 0) - (a.mentions_share || 0));
+        } else if (metric === 'normalized_engagement') {
+            rows.sort((a, b) => (b.normalized_engagement || 0) - (a.normalized_engagement || 0));
+        } else if (metric === 'sentiment_mix') {
+            // sort by positive share
+            rows.sort((a, b) => {
+                const aTotal = (a.sent_total || a.pos_count || 0) || 1;
+                const bTotal = (b.sent_total || b.pos_count || 0) || 1;
+                const aPos = (a.pos_count || 0) / aTotal;
+                const bPos = (b.pos_count || 0) / bTotal;
+                return bPos - aPos;
+            });
+        }
+    }
+
+    const labels = rows.map(p => p.platform || 'Unknown');
+
+    // Clear previous chart
+    if (platformComparisonChart) {
+        platformComparisonChart.destroy();
+    }
+
+    // ========== MODE 1: Share of conversation ==========
+    if (metric === 'mentions_share') {
+        const values = rows.map(p => Number(p.mentions_share || 0));
+        const yTitle = 'Share of conversation (%)';
+        const explanation =
+            `Each bar shows what percentage of all social posts about “${currentKeyword || 'this topic'}” ` +
+            `comes from each platform. Higher bars = bigger share of conversation.`;
+
+        platformComparisonContainer.style.display = 'block';
+        platformComparisonExplanation.innerText = explanation;
+        destroyChartOnCanvasId('platformComparisonChart');
+        platformComparisonChart = new Chart(platformComparisonCtx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: yTitle,
+                    data: values,
+                    borderWidth: 1,
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                    borderColor: 'rgb(54, 162, 235)'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { title: { display: true, text: 'Platform' } },
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: yTitle }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const value = ctx.parsed.y;
+                                return `${ctx.label}: ${value.toFixed(1)}% of conversation`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        return;
+    }
+
+    // ========== MODE 2: Engagement index (0–100) ==========
+    if (metric === 'normalized_engagement') {
+        const values = rows.map(p => Number(p.normalized_engagement || 0));
+        const yTitle = 'Engagement index (0–100)';
+        const explanation =
+            `Each bar shows a simple engagement index (0–100) based on the average engagement ` +
+            `score of posts about “${currentKeyword || 'this topic'}” on each platform. Higher bars = more engaged audience.`;
+
+        platformComparisonContainer.style.display = 'block';
+        platformComparisonExplanation.innerText = explanation;
+
+        platformComparisonChart = new Chart(platformComparisonCtx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: yTitle,
+                    data: values,
+                    borderWidth: 1,
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                    borderColor: 'rgb(54, 162, 235)'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { title: { display: true, text: 'Platform' } },
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        title: { display: true, text: yTitle }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const value = ctx.parsed.y;
+                                return `${ctx.label}: engagement index ${value.toFixed(1)} / 100`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        return;
+    }
+
+    // ========== MODE 3: Sentiment mix (stacked bar) ==========
+    if (metric === 'sentiment_mix') {
+        const posData = [];
+        const neuData = [];
+        const negData = [];
+
+        rows.forEach(p => {
+            const pos = Number(p.pos_count || 0);
+            const neg = Number(p.neg_count || 0);
+            const neu = Number(p.neu_count || 0);
+            const total = pos + neg + neu;
+
+            if (total > 0) {
+                posData.push((pos / total) * 100);
+                neuData.push((neu / total) * 100);
+                negData.push((neg / total) * 100);
+            } else {
+                posData.push(0);
+                neuData.push(0);
+                negData.push(0);
+            }
+        });
+
+        const yTitle = 'Share of posts by sentiment (%)';
+        const explanation =
+            `Each bar shows how posts about “${currentKeyword || 'this topic'}” are split into positive, neutral, ` +
+            `and negative sentiment on each platform. The height of each colored segment is the percentage of posts in that sentiment.`;
+
+        platformComparisonContainer.style.display = 'block';
+        platformComparisonExplanation.innerText = explanation;
+
+        platformComparisonChart = new Chart(platformComparisonCtx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'Positive',
+                        data: posData,
+                        backgroundColor: 'rgba(75, 192, 192, 0.8)'
+                    },
+                    {
+                        label: 'Neutral',
+                        data: neuData,
+                        backgroundColor: 'rgba(201, 203, 207, 0.8)'
+                    },
+                    {
+                        label: 'Negative',
+                        data: negData,
+                        backgroundColor: 'rgba(255, 99, 132, 0.8)'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        stacked: true,
+                        title: { display: true, text: 'Platform' }
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true,
+                        max: 100,
+                        title: { display: true, text: yTitle }
+                    }
+                },
+                plugins: {
+                    legend: { position: 'bottom' },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const value = ctx.parsed.y || 0;
+                                return `${ctx.dataset.label}: ${value.toFixed(1)}% of posts`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+}
+
+
+// --- Fetch & store platform comparison data ---
+async function fetchAndRenderPlatformComparison(keyword) {
+    try {
+        const resp = await fetch(`/api/platforms/comparison?keyword=${encodeURIComponent(keyword)}`);
+        if (!resp.ok) {
+            console.warn('Platform comparison endpoint returned error');
+            platformComparisonContainer.style.display = 'none';
+            platformComparisonExplanation.innerText = '';
+            return;
+        }
+
+        const data = await resp.json();
+        const platforms = data.platforms || [];
+
+        if (!platforms.length) {
+            platformComparisonContainer.style.display = 'none';
+            platformComparisonExplanation.innerText = 'Not enough cross-platform data yet.';
+            return;
+        }
+
+        // Save globally so we can re-render on filter changes
+        lastPlatformComparisonData = platforms;
+        renderPlatformComparison();
+    } catch (e) {
+        console.error('Failed to fetch/render platform comparison', e);
+        platformComparisonContainer.style.display = 'none';
+        platformComparisonExplanation.innerText = '';
+    }
+}
+
+
+
+
+        searchButton.addEventListener('click', analyzeKeyword);
+        keywordInput.addEventListener('keyup', (event) => { if (event.key === 'Enter') analyzeKeyword(); });
+        
+        startDateInput.addEventListener('change', renderFilteredChart);
+        endDateInput.addEventListener('change', renderFilteredChart);
+        platformMetricSelect.addEventListener('change', () => {
+            renderPlatformComparison();
+        });
+
+        platformSortSelect.addEventListener('change', () => {
+            renderPlatformComparison();
+        });
+
+        const geoLevelSelect = document.getElementById('geoLevel');
+        const geoLimitInput  = document.getElementById('geoLimit');
+
+        geoLevelSelect.addEventListener('change', () => {
+            if (currentKeyword) {
+                fetchAndRenderGeoMetrics(currentKeyword);
+            }
+        });
+
+        geoLimitInput.addEventListener('change', () => {
+            if (currentKeyword) {
+                fetchAndRenderGeoMetrics(currentKeyword);
+            }
+        });
+
+
+    </script>
+</body>
+</html>

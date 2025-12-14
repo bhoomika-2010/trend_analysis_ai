@@ -1,0 +1,16 @@
+flask
+flask-cors
+mysql-connector-python
+requests
+praw
+apify-client
+scrapingbee
+spacy
+tensorflow
+pandas
+statsmodels
+vaderSentiment
+google-search-results
+scikit-learn
+pycountry
+geopy
