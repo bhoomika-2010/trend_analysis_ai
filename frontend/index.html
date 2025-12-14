@@ -30,35 +30,86 @@
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    /* allow chart elements (legend, labels) to overflow outside inner area if needed */
-    overflow: visible;
+    /* Prevent content from overflowing outside the card */
+    overflow: hidden;
     /* card visual height - adjust if you want taller cards */
-    height: 480px;
+    min-height: 480px;
+    max-height: 650px;
+    /* Ensure content wraps properly */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 /* Reserve header/legend area */
 .chart-wrapper h2 {
-    margin: 0 0 8px 0;
-    line-height: 1.2;
-    height: 48px;               /* give bigger reserved space for title/legend */
+    margin: 0 0 12px 0;
+    line-height: 1.3;
+    min-height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
-/* Canvas fills remaining space but can overflow vertically if needed */
+/* Canvas fills remaining space */
 .chart-wrapper canvas {
     width: 100% !important;
-    height: calc(100% - 56px) !important; /* leave room for header and a little gap */
+    flex: 1 1 auto;
+    min-height: 200px;
+    max-height: 350px;
     display: block;
     box-sizing: border-box;
-    max-height: none;
+}
+
+/* Helper text sections should be scrollable if needed */
+.chart-wrapper #sentimentHelperText,
+.chart-wrapper #topicsHelperText,
+.chart-wrapper #influencersHelperText,
+.chart-wrapper #geoHelperText,
+.chart-wrapper #topCountriesHelperText {
+    margin-top: 12px;
+    flex-shrink: 0;
+    max-height: 140px;
+    overflow-y: auto;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    line-height: 1.5;
+}
+
+/* Adjust chart height when helper text is present */
+.chart-wrapper:has(#sentimentHelperText) canvas {
+    max-height: 280px;
+}
+
+.chart-wrapper:has(#topicsHelperText) #topicsList,
+.chart-wrapper:has(#influencersHelperText) #influencersList,
+.chart-wrapper:has(#geoHelperText) #geoList {
+    max-height: 180px;
 }
 
 
         .chart-wrapper.full-width { flex-basis: 100%; }
         h2 { text-align: center; margin-top: 0; }
         #statusMessage { margin-top: 20px; font-size: 18px; color: #555; text-align: center; min-height: 25px; }
+        
+        /* Platform comparison explanation text wrapping */
+        #platformComparisonExplanation {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            line-height: 1.5;
+            max-width: 100%;
+        }
+        
+        /* Ensure all helper text sections wrap properly */
+        #sentimentHelperText,
+        #topicsHelperText,
+        #influencersHelperText,
+        #geoHelperText,
+        #topCountriesHelperText {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            line-height: 1.5;
+        }
     </style>
 </head>
 <body>
@@ -97,7 +148,7 @@
         </div>
 
         <div class="chart-wrapper" id="geoContainer" style="display: none; height: 420px;">
-    <h2>Geographic Metrics</h2>
+    <h2>(Google Trends) Geographic Metrics</h2>
     <div style="display:flex; gap:12px; align-items:center; margin-bottom:8px;">
         <label for="geoLevel">Level:</label>
         <!-- <select id="geoLevel">
@@ -114,7 +165,7 @@
 
     <!-- ⭐ NEW Leaderboard below -->
     <div id="geoTopCountriesWrapper" style="margin-top:14px; display:none;">
-        <h3 style="margin-bottom:6px;">Top Countries by Trend</h3>
+        <h3 style="margin-bottom:6px;">Top Countries by Trend (Google Trends)</h3>
         <div id="geoTopCountriesList" style="padding: 10px; max-height: 180px; overflow:auto;"></div>
     </div>
 
@@ -153,7 +204,7 @@
             <option value="alphabetical">Platform name (A–Z)</option>
         </select>
     </div>
-    <p id="platformComparisonExplanation" style="font-size: 12px; color:#555; margin:4px 0 12px 0;"></p>
+    <p id="platformComparisonExplanation" style="font-size: 12px; color:#555; margin:4px 0 12px 0; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.5; max-width: 100%;"></p>
     <canvas id="platformComparisonChart"></canvas>
 </div>
 
@@ -239,11 +290,17 @@
     sentimentContainer.style.display = 'block';
     sentimentCtx.canvas.style.display = '';
 
-    // Create pie chart with safe options
+    // Calculate percentages
+    const total = pos + neg + neu;
+    const posPct = total > 0 ? ((pos / total) * 100).toFixed(1) : '0.0';
+    const negPct = total > 0 ? ((neg / total) * 100).toFixed(1) : '0.0';
+    const neuPct = total > 0 ? ((neu / total) * 100).toFixed(1) : '0.0';
+
+    // Create pie chart with percentages in labels
     sentimentChart = new Chart(sentimentCtx, {
         type: 'pie',
         data: {
-            labels: ['Positive', 'Negative', 'Neutral'],
+            labels: [`Positive (${posPct}%)`, `Negative (${negPct}%)`, `Neutral (${neuPct}%)`],
             datasets: [{
                 label: 'Sentiment',
                 data: [pos, neg, neu],
@@ -260,13 +317,45 @@
                     position: 'top',
                     labels: { boxWidth: 12, padding: 8 }
                 },
-                tooltip: { enabled: true }
+                tooltip: { 
+                    enabled: true,
+                    callbacks: {
+                        label: function(context) {
+                            const label = context.label || '';
+                            const value = context.parsed || 0;
+                            const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                            return `${label}: ${percentage}% (${value} posts)`;
+                        }
+                    }
+                }
             },
             elements: {
                 arc: { borderWidth: 1 }
             }
         }
     });
+
+    // Add helper text below the chart showing percentages
+    const helperText = document.createElement('div');
+    helperText.id = 'sentimentHelperText';
+    helperText.style.cssText = 'padding: 10px; margin-top: 10px; background-color: #f8f9fa; border-radius: 4px; font-size: 12px; color: #555; line-height: 1.5; word-wrap: break-word; overflow-wrap: break-word;';
+    helperText.innerHTML = `
+        <strong>Sentiment Breakdown:</strong><br/>
+        <span style="color: rgb(75, 192, 192);">●</span> <strong>Positive:</strong> ${posPct}% (${Math.round(pos)} posts) - Posts expressing favorable or positive opinions<br/>
+        <span style="color: rgb(255, 99, 132);">●</span> <strong>Negative:</strong> ${negPct}% (${Math.round(neg)} posts) - Posts expressing unfavorable or negative opinions<br/>
+        <span style="color: rgb(201, 203, 207);">●</span> <strong>Neutral:</strong> ${neuPct}% (${Math.round(neu)} posts) - Posts with neutral or balanced sentiment<br/>
+        <small style="color: #888; margin-top: 4px; display: block;">💡 <em>Percentages calculated from all social media posts. Sentiment determined using VADER analysis.</em></small>
+    `;
+    
+    // Remove any existing helper text
+    const existingHelper = document.getElementById('sentimentHelperText');
+    if (existingHelper) existingHelper.remove();
+    
+    sentimentContainer.appendChild(helperText);
+    
+    // Adjust container height to accommodate helper text
+    sentimentContainer.style.minHeight = '520px';
+    sentimentContainer.style.maxHeight = '600px';
 };
 
 
@@ -432,9 +521,28 @@
                         const div = document.createElement('div');
                         div.style.padding = '8px';
                         div.style.borderBottom = '1px solid #eee';
-                        div.innerHTML = `<strong>${t.topic_label}</strong> <small style='color:#666'>(score ${Number(t.score).toFixed(2)})</small><br/><span style='color:#333'>${t.topic_id}</span>`;
+                        const score = Number(t.score).toFixed(2);
+                        div.innerHTML = `
+                            <strong>${t.topic_label}</strong> 
+                            <span title="Topic relevance score (0-1). Higher scores indicate stronger topic presence in the analyzed content." style='color:#666; cursor: help; border-bottom: 1px dotted #999;'>
+                                (score: ${score})
+                            </span>
+                            <br/>
+                            <span style='color:#333; font-size: 12px;'>${t.topic_id}</span>
+                        `;
                         list.appendChild(div);
                     });
+                    
+                    // Add helper text for topics
+                    const topicsHelper = document.createElement('div');
+                    topicsHelper.style.cssText = 'padding: 8px; margin-top: 8px; background-color: #f8f9fa; border-radius: 4px; font-size: 12px; color: #555; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.5;';
+                    topicsHelper.innerHTML = `
+                        <strong>💡 About Topic Scores:</strong> Scores range from 0 to 1, where higher values indicate stronger topic presence. Topics are automatically detected using Non-negative Matrix Factorization (NMF) from social media content.
+                    `;
+                    const existingTopicsHelper = document.getElementById('topicsHelperText');
+                    if (existingTopicsHelper) existingTopicsHelper.remove();
+                    topicsHelper.id = 'topicsHelperText';
+                    list.appendChild(topicsHelper);
                 } else {
                     container.style.display = 'none';
                 }
@@ -520,12 +628,26 @@ async function fetchAndRenderInfluencers(keyword) {
                     &nbsp;(${platform})
                 </small><br/>
                 <span style="color:#333">
-                    engagements: ${engagements.toLocaleString()} • score: ${score.toFixed(1)}
+                    <span title="Total engagement metrics (likes, comments, shares, views) across all posts by this influencer">engagements: ${engagements.toLocaleString()}</span> • 
+                    <span title="Influence score calculated from followers (70%), engagements (20%), and mention count (50 points per mention). Higher scores indicate greater influence." style="cursor: help; border-bottom: 1px dotted #999;">
+                        score: ${score.toFixed(1)}
+                    </span>
                 </span>
             `;
 
             list.appendChild(div);
         });
+
+        // Add helper text for influencers
+        const influencersHelper = document.createElement('div');
+        influencersHelper.id = 'influencersHelperText';
+        influencersHelper.style.cssText = 'padding: 8px; margin-top: 8px; background-color: #f8f9fa; border-radius: 4px; font-size: 12px; color: #555; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.5;';
+        influencersHelper.innerHTML = `
+            <strong>💡 About Influence Scores:</strong> Calculated as (followers × 0.7) + (engagements × 0.2) + (mentions × 50). Higher scores indicate users with more followers, engagement, and content volume about this topic. Only YouTube and Instagram influencers are shown.
+        `;
+        const existingInfluencersHelper = document.getElementById('influencersHelperText');
+        if (existingInfluencersHelper) existingInfluencersHelper.remove();
+        list.appendChild(influencersHelper);
 
     } catch (e) {
         console.warn('Influencers fetch failed', e);
@@ -555,12 +677,38 @@ async function fetchAndRenderInfluencers(keyword) {
                         div.style.padding = '8px';
                         div.style.borderBottom = '1px solid #eee';
                         div.style.cursor = 'pointer';
-                        div.innerHTML = `<strong>${m.location || 'Unknown'}</strong> <small style='color:#666'>avg: ${Number(m.metric_avg).toFixed(2)}</small> <span style='color:#333'>rows: ${m.row_count}</span>`;
+                        const avgMetric = Number(m.metric_avg).toFixed(2);
+                        div.innerHTML = `
+                            <strong>${m.location || 'Unknown'}</strong> 
+                            <span title="Google Trends interest score (0-100). 0-25=Low, 26-50=Moderate, 51-75=High, 76-100=Very High. These are relative scores compared to each location's baseline, not absolute search volumes." style='color:#666; cursor: help; border-bottom: 1px dotted #999;'>
+                                avg: ${avgMetric}
+                            </span> 
+                            <span title="Number of data points aggregated for this location" style='color:#333; cursor: help; border-bottom: 1px dotted #999;'>
+                                rows: ${m.row_count}
+                            </span>
+                        `;
                         div.addEventListener('click', () => {
                             fetchAndRenderGeoForecast(keyword, m.location);
                         });
                         list.appendChild(div);
                     });
+                    
+                    // Add helper text for geo metrics
+                    const geoHelper = document.createElement('div');
+                    geoHelper.id = 'geoHelperText';
+                    geoHelper.style.cssText = 'padding: 8px; margin-top: 8px; background-color: #f8f9fa; border-radius: 4px; font-size: 12px; color: #555; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.5;';
+                    geoHelper.innerHTML = `
+                        <strong>💡 About Geographic Metrics (Google Trends):</strong><br/>
+                        <strong>Score Meaning:</strong> The "avg" score represents Google Trends interest level (0-100 scale) for this keyword in each location. <br/>
+                        • <strong>0-25:</strong> Low relative interest<br/>
+                        • <strong>26-50:</strong> Moderate relative interest<br/>
+                        • <strong>51-75:</strong> High relative interest<br/>
+                        • <strong>76-100:</strong> Very high relative interest<br/>
+                        <em>Note: These are relative scores compared to each location's baseline, not absolute search volumes. A location with score 100 has the highest relative interest for that keyword in that region. Click a location to see forecast trends.</em>
+                    `;
+                    const existingGeoHelper = document.getElementById('geoHelperText');
+                    if (existingGeoHelper) existingGeoHelper.remove();
+                    list.appendChild(geoHelper);
                 } else {
                     container.style.display = 'none';
                 }
@@ -627,12 +775,28 @@ async function fetchAndRenderInfluencers(keyword) {
             const div = document.createElement('div');
             div.style.padding = '8px';
             div.style.borderBottom = '1px solid #eee';
+            const score = Number(c.value || 0).toFixed(1);
             div.innerHTML = `
                 <strong>${idx + 1}. ${c.country || 'Unknown'}</strong>
-                <span style="float:right; color:#333;">Score: ${Number(c.value || 0).toFixed(1)}</span>
+                <span style="float:right; color:#333;">
+                    <span title="Google Trends interest score (0-100). 100 = highest relative interest in this country. Scores are relative, not absolute search volume." style="cursor: help; border-bottom: 1px dotted #999;">
+                        Score: ${score}
+                    </span>
+                </span>
             `;
             list.appendChild(div);
         });
+        
+        // Add helper text for top countries
+        const topCountriesHelper = document.createElement('div');
+        topCountriesHelper.id = 'topCountriesHelperText';
+        topCountriesHelper.style.cssText = 'padding: 8px; margin-top: 8px; background-color: #f8f9fa; border-radius: 4px; font-size: 12px; color: #555; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.5;';
+        topCountriesHelper.innerHTML = `
+            <strong>💡 About Google Trends Scores:</strong> Scores range from 0-100, where 100 represents the location with the highest relative search interest. These are <em>relative</em> scores (compared to each country's baseline), not absolute search volumes. A country with score 100 may have lower absolute searches than a country with score 50, but higher relative interest.
+        `;
+        const existingTopCountriesHelper = document.getElementById('topCountriesHelperText');
+        if (existingTopCountriesHelper) existingTopCountriesHelper.remove();
+        list.appendChild(topCountriesHelper);
 
     } catch (e) {
         console.warn('Failed to fetch/render top countries', e);
@@ -647,7 +811,7 @@ async function fetchAndRenderInfluencers(keyword) {
 function renderPlatformComparison() {
     if (!lastPlatformComparisonData || lastPlatformComparisonData.length === 0) {
         platformComparisonContainer.style.display = 'none';
-        platformComparisonExplanation.innerText = '';
+        platformComparisonExplanation.innerHTML = '';
         return;
     }
 
@@ -688,11 +852,12 @@ function renderPlatformComparison() {
         const values = rows.map(p => Number(p.mentions_share || 0));
         const yTitle = 'Share of conversation (%)';
         const explanation =
-            `Each bar shows what percentage of all social posts about “${currentKeyword || 'this topic'}” ` +
-            `comes from each platform. Higher bars = bigger share of conversation.`;
+            `💡 <strong>Share of Conversation:</strong> Each bar shows what percentage of total engagement volume (views, likes, comments, upvotes) about "${currentKeyword || 'this topic'}" ` +
+            `comes from each platform. Higher bars = bigger share of engagement. ` +
+            `<em>This metric uses total engagement volume (sum of all scores), not just post count, making it more business-relevant. For example, if YouTube has 60%, it means 60% of all engagement (views + likes + comments) came from YouTube.</em>`;
 
         platformComparisonContainer.style.display = 'block';
-        platformComparisonExplanation.innerText = explanation;
+        platformComparisonExplanation.innerHTML = explanation;
         destroyChartOnCanvasId('platformComparisonChart');
         platformComparisonChart = new Chart(platformComparisonCtx, {
             type: 'bar',
@@ -737,11 +902,12 @@ function renderPlatformComparison() {
         const values = rows.map(p => Number(p.normalized_engagement || 0));
         const yTitle = 'Engagement index (0–100)';
         const explanation =
-            `Each bar shows a simple engagement index (0–100) based on the average engagement ` +
-            `score of posts about “${currentKeyword || 'this topic'}” on each platform. Higher bars = more engaged audience.`;
+            `💡 <strong>Engagement Index (0-100):</strong> Each bar shows the log-normalized average engagement per post about "${currentKeyword || 'this topic'}" ` +
+            `on each platform. Higher bars = more engaged audience per post. ` +
+            `<em>Scores use logarithmic normalization to account for platform scale differences (YouTube views in millions vs Instagram likes in thousands). This prevents YouTube from always ranking first and provides fair comparison across platforms.</em>`;
 
         platformComparisonContainer.style.display = 'block';
-        platformComparisonExplanation.innerText = explanation;
+        platformComparisonExplanation.innerHTML = explanation;
 
         platformComparisonChart = new Chart(platformComparisonCtx, {
             type: 'bar',
@@ -808,10 +974,11 @@ function renderPlatformComparison() {
         const yTitle = 'Share of posts by sentiment (%)';
         const explanation =
             `Each bar shows how posts about “${currentKeyword || 'this topic'}” are split into positive, neutral, ` +
-            `and negative sentiment on each platform. The height of each colored segment is the percentage of posts in that sentiment.`;
+            `and negative sentiment on each platform. The height of each colored segment is the percentage of posts in that sentiment. ` +
+            `<em>Green = Positive, Gray = Neutral, Red = Negative. Percentages are calculated from posts analyzed using VADER sentiment analysis.</em>`;
 
         platformComparisonContainer.style.display = 'block';
-        platformComparisonExplanation.innerText = explanation;
+        platformComparisonExplanation.innerHTML = explanation;
 
         platformComparisonChart = new Chart(platformComparisonCtx, {
             type: 'bar',
@@ -874,7 +1041,7 @@ async function fetchAndRenderPlatformComparison(keyword) {
         if (!resp.ok) {
             console.warn('Platform comparison endpoint returned error');
             platformComparisonContainer.style.display = 'none';
-            platformComparisonExplanation.innerText = '';
+            platformComparisonExplanation.innerHTML = '';
             return;
         }
 
@@ -883,7 +1050,7 @@ async function fetchAndRenderPlatformComparison(keyword) {
 
         if (!platforms.length) {
             platformComparisonContainer.style.display = 'none';
-            platformComparisonExplanation.innerText = 'Not enough cross-platform data yet.';
+            platformComparisonExplanation.innerHTML = 'Not enough cross-platform data yet.';
             return;
         }
 
@@ -893,7 +1060,7 @@ async function fetchAndRenderPlatformComparison(keyword) {
     } catch (e) {
         console.error('Failed to fetch/render platform comparison', e);
         platformComparisonContainer.style.display = 'none';
-        platformComparisonExplanation.innerText = '';
+        platformComparisonExplanation.innerHTML = '';
     }
 }
 

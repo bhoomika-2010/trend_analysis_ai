@@ -3,11 +3,12 @@ Influencer identification pipeline.
 
 Aggregates authors/users across `raw_data` for a given keyword and computes
 an influence score using:
-  - follower counts (if present in raw_json)
-  - engagements (using the `score` column as a proxy)
-  - mention count
+  - engagements (using the `score` column as a proxy for views/likes/etc.)
+  - mention count (frequency of posting about the keyword)
 
 Results are upserted into the `influencers` table.
+Note: Removed follower counts to avoid platform bias since they're not consistently
+available across all platforms (YouTube, Instagram, Twitter, Reddit).
 """
 
 import sys
@@ -164,8 +165,9 @@ def run_pipeline(keyword, limit=10000):
             engagements = float(stats["engagements"])
             followers = int(stats["followers"]) if stats["followers"] else 0
 
-            # Simple weighted influence score; you can tune later
-            influence_score = followers * 0.7 + engagements * 0.2 + mentions * 50.0
+            # Platform-normalized influence score (no follower bias)
+            # Weight: 70% engagement, 30% mentions (consistent across platforms)
+            influence_score = engagements * 0.7 + mentions * 30.0
 
             ins = (
                 "INSERT INTO influencers "

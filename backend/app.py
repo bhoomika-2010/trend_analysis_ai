@@ -463,7 +463,7 @@ def get_influencers():
         if cursor.fetchone() is None:
             return jsonify({'keyword': keyword, 'influencers': []})
 
-        # Only YouTube + Instagram, sorted by influence_score
+        # All platforms now fairly comparable (removed follower bias)
         query = """
             SELECT platform,
                    user_id,
@@ -473,7 +473,6 @@ def get_influencers():
                    influence_score
             FROM influencers
             WHERE keyword = %s
-              AND platform IN ('YouTube', 'Instagram')
             ORDER BY influence_score DESC
             LIMIT %s
         """
@@ -526,10 +525,17 @@ def refresh_influencers():
 def platforms_comparison():
     """
     Per-platform metrics for a keyword:
-      - mentions, avg_score (from raw_data)
-      - normalized_engagement (0–100)
-      - mentions_share (%)   = volume share
-      - sentiment counts     = pos/neg/neu + total
+      - mentions: Number of posts/content items
+      - total_engagement: Sum of all engagement scores (views, likes, comments, etc.)
+      - avg_score: Average engagement per post
+      - normalized_engagement (0–100): Log-normalized engagement index to account for platform scale differences
+      - mentions_share (%): Share of total engagement volume (not just count) - more business-relevant
+      - sentiment counts: pos/neg/neu + total
+
+    Improvements:
+    1. Share of Conversation now uses total engagement volume instead of row count
+    2. Engagement Index uses log-normalization to prevent YouTube (with millions of views) from always winning
+       over platforms like Instagram/Reddit (with thousands of likes/upvotes)
 
     Google Trends is excluded because it is already visualized separately.
     """
@@ -544,10 +550,12 @@ def platforms_comparison():
         cursor = conn.cursor(dictionary=True)
 
         # ---- 1) Base metrics from raw_data ----
+        # Calculate total engagement (sum of scores) and average per platform
         base_sql = """
             SELECT
                 platform,
                 AVG(score) AS avg_score,
+                SUM(COALESCE(score, 0)) AS total_engagement,
                 COUNT(*)   AS mentions
             FROM raw_data
             WHERE keyword = %s
@@ -558,18 +566,19 @@ def platforms_comparison():
         base_rows = cursor.fetchall()
 
         platforms = {}
-        total_mentions = 0
-        min_avg = None
-        max_avg = None
+        total_engagement_all_platforms = 0.0  # Total engagement across all platforms
+        platform_avg_scores = {}  # Store avg_score per platform for normalization
 
         for r in base_rows:
             platform = r.get('platform') or 'Unknown'
             avg_score = float(r.get('avg_score') or 0.0)
+            total_engagement = float(r.get('total_engagement') or 0.0)
             mentions = int(r.get('mentions') or 0)
 
             platforms[platform] = {
                 "platform": platform,
                 "avg_score": avg_score,
+                "total_engagement": total_engagement,
                 "mentions": mentions,
                 # sentiment fields (filled later)
                 "pos_count": 0,
@@ -581,11 +590,8 @@ def platforms_comparison():
                 "normalized_engagement": 0.0,
             }
 
-            total_mentions += mentions
-            if min_avg is None or avg_score < min_avg:
-                min_avg = avg_score
-            if max_avg is None or avg_score > max_avg:
-                max_avg = avg_score
+            total_engagement_all_platforms += total_engagement
+            platform_avg_scores[platform] = avg_score
 
         # ---- 2) Sentiment counts from post_enrichment join ----
         sent_sql = """
@@ -633,18 +639,45 @@ def platforms_comparison():
 
         # ---- 3) Derived fields: mentions_share + normalized_engagement ----
         results = []
-        total_mentions = max(total_mentions, 1)  # avoid divide-by-zero
-        spread = (max_avg - min_avg) if (min_avg is not None and max_avg is not None) else 0.0
+        
+        # FIX 1: Share of Conversation - Use total engagement volume, not row count
+        total_engagement_all_platforms = max(total_engagement_all_platforms, 1.0)  # avoid divide-by-zero
+        
+        # FIX 2: Engagement Index - Normalize per-platform using log scale to account for different scales
+        # YouTube views (millions) vs Instagram likes (thousands) need different treatment
+        import math
+        
+        # Calculate log-scaled scores per platform to compress the range
+        log_scores = {}
+        for platform, avg_score in platform_avg_scores.items():
+            if avg_score > 0:
+                # Use log10 to compress large numbers (YouTube views) and small numbers (Instagram likes)
+                # Add 1 to avoid log(0), then scale
+                log_scores[platform] = math.log10(avg_score + 1)
+            else:
+                log_scores[platform] = 0.0
+        
+        # Find min/max of log scores for normalization
+        if log_scores:
+            min_log = min(log_scores.values())
+            max_log = max(log_scores.values())
+            log_spread = max_log - min_log if (max_log > min_log) else 1.0
+        else:
+            log_spread = 1.0
+            min_log = 0.0
 
         for p in platforms.values():
-            # share of conversation
-            p["mentions_share"] = (p["mentions"] / total_mentions) * 100.0 if total_mentions > 0 else 0.0
+            # FIX 1: Share of conversation based on engagement volume, not count
+            p["mentions_share"] = (p["total_engagement"] / total_engagement_all_platforms) * 100.0 if total_engagement_all_platforms > 0 else 0.0
 
-            # engagement index 0–100
-            if spread > 0:
-                p["normalized_engagement"] = ((p["avg_score"] - min_avg) / spread) * 100.0
+            # FIX 2: Engagement index using log-normalized scores to prevent YouTube from always winning
+            platform = p["platform"]
+            if platform in log_scores and log_spread > 0:
+                # Normalize log score to 0-100 range
+                log_score = log_scores[platform]
+                p["normalized_engagement"] = ((log_score - min_log) / log_spread) * 100.0
             else:
-                # If all avg_scores are the same, give a neutral value
+                # If no valid score, give neutral value
                 p["normalized_engagement"] = 50.0
 
             results.append(p)
