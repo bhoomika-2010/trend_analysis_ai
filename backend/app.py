@@ -27,9 +27,10 @@ from backend.ingest.youtube_connector import fetch_youtube_data
 from backend.processing.analyzer import analyze_and_store_sentiment_and_entities
 from backend.scripts.clean_and_aggregate import clean_and_aggregate_google_trends
 from backend.analytics.geo_pipeline import enrich_geo_and_aggregate
-from backend.scripts.google_trends import SERPAPI_KEY
 from serpapi import GoogleSearch
 from backend.analytics.influencer_pipeline import run_pipeline as run_influencer_pipeline
+
+SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 
 
 # --- Flask App Initialization ---
