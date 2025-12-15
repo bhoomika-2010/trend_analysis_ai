@@ -1,8 +1,8 @@
 """Twitter/X connector scaffold using `tweepy` if available."""
 from .connector_base import ConnectorBase
 import logging
-from dotenv import load_dotenv 
-load_dotenv()
+import os
+
 logger = logging.getLogger(__name__)
 
 try:
